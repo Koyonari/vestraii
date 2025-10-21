@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Settings, Moon, Sun, LineChart, User, LogOut, ChevronUp } from 'lucide-react'
+import { Settings, Moon, Sun, LineChart, User, LogOut, ChevronUp, Heart, UserCircle2 } from 'lucide-react'
+import { useUser, useClerk } from '@clerk/nextjs'
 import {
   Sidebar,
   SidebarContent,
@@ -26,16 +27,23 @@ import Image from 'next/image'
 const items = [
   {
     title: 'Stock Dashboard',
-    url: '#',
+    url: '',
     icon: LineChart,
+    requiresAuth: false,
   },
+  {
+    title: 'Watchlist',
+    url: 'watchlist',
+    icon: Heart,
+    requiresAuth: true,
+  }
 ]
 
 export function AppSidebar() {
   const { state, isMobile } = useSidebar()
+  const { user, isSignedIn } = useUser()
+  const { signOut, openSignIn } = useClerk()
   
-  // User profile
-  const [username] = useState('John Doe')
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   
   // Theme management
@@ -85,7 +93,23 @@ export function AppSidebar() {
     return null
   }
 
-  const ItemIcon = items[0].icon
+  const username = user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress || 'Guest'
+  const userInitial = username.charAt(0).toUpperCase()
+
+  const handleMenuClick = (item: typeof items[0], e: React.MouseEvent) => {
+    if (item.requiresAuth && !isSignedIn) {
+      e.preventDefault()
+      openSignIn()
+    }
+  }
+
+  const handleDropdownItemClick = (action: () => void) => {
+    if (!isSignedIn) {
+      openSignIn()
+    } else {
+      action()
+    }
+  }
 
   return (
     <div className={isDarkMode ? 'dark' : ''}>
@@ -97,7 +121,7 @@ export function AppSidebar() {
         <SidebarContent>
           <SidebarGroup>
             <div className="text-sm italic mb-4 transition-colors duration-300">
-              <Image src="/vestra.svg" alt="Vestra" width={64} height={64} className="h-16 w-16" />
+              <Image src="/img/vestra.svg" alt="Vestra" width={64} height={64} className="h-16 w-16" />
             </div>
             <SidebarGroupContent>
               <SidebarMenu
@@ -107,12 +131,17 @@ export function AppSidebar() {
               >
                 {items.map((item) => {
                   const Icon = item.icon
+                  const isLocked = item.requiresAuth && !isSignedIn
                   return (
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton asChild>
                         <a
                           href={item.url}
-                          className="flex items-center gap-2 px-2 py-2 rounded-md hover:bg-copper/10 transition-all duration-300"
+                          onClick={(e) => handleMenuClick(item, e)}
+                          className={`flex items-center gap-2 px-2 py-2 rounded-md hover:bg-copper/10 transition-all duration-300 ${
+                            isLocked ? 'opacity-80' : ''
+                          }`}
+                          title={isLocked ? 'Login required to access this feature' : undefined}
                         >
                           <Icon className="h-5 w-5 text-copper transition-colors duration-300 self-center" />
                           <span className="transition-colors duration-300 text-sm">{item.title}</span>
@@ -180,9 +209,23 @@ export function AppSidebar() {
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-full bg-copper flex items-center justify-center text-pale_white transition-colors duration-300">
-                    {username.charAt(0)}
-                  </div>
+                  {isSignedIn && user?.imageUrl ? (
+                    <Image
+                      src={user.imageUrl}
+                      alt={username}
+                      width={32}
+                      height={32}
+                      className="h-8 w-8 rounded-full object-cover"
+                    />
+                  ) : isSignedIn ? (
+                    <div className="h-8 w-8 rounded-full bg-copper flex items-center justify-center text-pale_white transition-colors duration-300">
+                      {userInitial}
+                    </div>
+                  ) : (
+                    <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center transition-colors duration-300">
+                      <UserCircle2 className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                  )}
                   {(state === 'expanded' || isMobile) && (
                     <span className="font-medium transition-colors duration-300">{username}</span>
                   )}
@@ -196,18 +239,43 @@ export function AppSidebar() {
                 )}
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 transition-colors duration-300">
-                <DropdownMenuItem className="cursor-pointer transition-colors duration-300">
+                <DropdownMenuItem 
+                  className={`cursor-pointer transition-colors duration-300 ${
+                    !isSignedIn ? 'opacity-80' : ''
+                  }`}
+                  onClick={() => handleDropdownItemClick(() => {})}
+                  title={!isSignedIn ? 'Login required to access this feature' : undefined}
+                >
                   <User className="mr-2 h-4 w-4 transition-colors duration-300" />
                   <span className="transition-colors duration-300">Account</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer transition-colors duration-300">
+                <DropdownMenuItem 
+                  className={`cursor-pointer transition-colors duration-300 ${
+                    !isSignedIn ? 'opacity-80' : ''
+                  }`}
+                  onClick={() => handleDropdownItemClick(() => {})}
+                  title={!isSignedIn ? 'Login required to access this feature' : undefined}
+                >
                   <Settings className="mr-2 h-4 w-4 transition-colors duration-300" />
                   <span className="transition-colors duration-300">Settings</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer text-red-500 transition-colors duration-300">
-                  <LogOut className="mr-2 h-4 w-4 transition-colors duration-300" />
-                  <span className="transition-colors duration-300">Sign out</span>
-                </DropdownMenuItem>
+                  {isSignedIn ? (
+                  <DropdownMenuItem 
+                    className="cursor-pointer text-red-500 transition-colors duration-300"
+                    onClick={() => signOut()}
+                  >
+                    <LogOut className="mr-2 h-4 w-4 transition-colors duration-300" />
+                    <span className="transition-colors duration-300">Sign out</span>
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem 
+                    className="cursor-pointer text-copper transition-colors duration-300"
+                    onClick={() => openSignIn()}
+                  >
+                    <User className="mr-2 h-4 w-4 transition-colors duration-300" />
+                    <span className="transition-colors duration-300">Sign in</span>
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
