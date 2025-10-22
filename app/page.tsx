@@ -1,6 +1,6 @@
 "use client";
 import { Authenticated, Unauthenticated } from "convex/react";
-import { UserButton, useClerk } from "@clerk/nextjs";
+import {  useClerk } from "@clerk/nextjs";
 import Dashboard from "@/components/dashboard/dashboard";
 import { useEffect } from "react";
 
@@ -8,9 +8,6 @@ export default function Home() {
   return (
     <>
       <Authenticated>
-        <div className="fixed top-4 right-4 z-50">
-          <UserButton />
-        </div>
         <Dashboard />
       </Authenticated>
       <Unauthenticated>
