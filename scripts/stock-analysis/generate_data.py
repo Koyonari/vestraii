@@ -1,0 +1,304 @@
+import json
+import os
+from datetime import datetime
+import pandas as pd
+from webscrape import get_top_101_stocks, get_stock_price_data
+from sentiment_analysis import SentimentAnalyzer
+from predict import predict_stock_trend, generate_shocking_predictions
+from config import MAX_STOCKS
+
+
+def export_stock_data_to_json(ticker, name, price_data, prediction_result, sentiment_data):
+    """Export stock data to JSON format"""
+    if price_data is None or prediction_result is None:
+        print(f"Insufficient data to export for {ticker}")
+        return False
+    
+    try:
+        # Create output directory
+        os.makedirs('stock_data', exist_ok=True)
+        
+        # Historical price data
+        historical_data = []
+        for date, row in price_data.iterrows():
+            historical_data.append({
+                "date": date.strftime('%Y-%m-%d'),
+                "price": round(float(row['Close']), 2),
+                "volume": int(row['Volume']) if 'Volume' in row else 0
+            })
+        
+        # Prediction data
+        prediction_series = []
+        upper_bound = []
+        lower_bound = []
+        
+        for date, row in prediction_result['prediction_df'].iterrows():
+            price = float(row['Price'])
+            prediction_series.append({
+                "date": date.strftime('%Y-%m-%d'),
+                "price": round(price, 2)
+            })
+            upper_bound.append({
+                "date": date.strftime('%Y-%m-%d'),
+                "price": round(price * 1.10, 2)  # 10% upper bound
+            })
+            lower_bound.append({
+                "date": date.strftime('%Y-%m-%d'),
+                "price": round(price * 0.90, 2)  # 10% lower bound
+            })
+        
+        # Create JSON structure
+        json_data = {
+            "ticker": ticker,
+            "name": name,
+            "sentiment": {
+                "score": sentiment_data['avg_sentiment'],
+                "category": sentiment_data['sentiment_category'],
+                "investment_score": sentiment_data['investment_score'],
+                "news_count": sentiment_data['news_count'],
+                "bullish_count": sentiment_data['bullish_count'],
+                "neutral_count": sentiment_data['neutral_count'],
+                "bearish_count": sentiment_data['bearish_count']
+            },
+            "current_price": prediction_result['current_price'],
+            "predicted_price_30d": prediction_result['predicted_price_30d'],
+            "price_change_pct": prediction_result['price_change_pct'],
+            "historical_data": historical_data[-90:],  # Last 90 days
+            "prediction": {
+                "data": prediction_series,
+                "upper_bound": upper_bound,
+                "lower_bound": lower_bound
+            },
+            "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        # Save to file
+        filename = os.path.join('stock_data', f'{ticker}_data.json')
+        with open(filename, 'w') as f:
+            json.dump(json_data, f, indent=2)
+        
+        print(f"✓ Exported {ticker} data to JSON")
+        return True
+    
+    except Exception as e:
+        print(f"Error exporting {ticker} to JSON: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def generate_master_stocks_json(ranked_stocks, shocking_predictions):
+    """Generate master JSON file with all analyzed stocks"""
+    try:
+        os.makedirs('stock_data', exist_ok=True)
+        
+        stocks_list = []
+        for _, row in ranked_stocks.iterrows():
+            stocks_list.append({
+                "ticker": row['ticker'],
+                "name": row['name'],
+                "investment_score": round(float(row['investment_score']), 2),
+                "sentiment_category": row['sentiment_category'],
+                "sentiment_score": round(float(row['avg_sentiment']), 4),
+                "rank": int(row['rank']),
+                "sector": row.get('sector', 'Unknown'),
+                "data_file": f"{row['ticker']}_data.json"
+            })
+        
+        master_data = {
+            "stocks": stocks_list,
+            "shocking_predictions": shocking_predictions,
+            "total_stocks": len(stocks_list),
+            "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "analysis_version": "2.0"
+        }
+        
+        with open('stock_data/master_stocks.json', 'w') as f:
+            json.dump(master_data, f, indent=2)
+        
+        print("✓ Generated master stocks JSON")
+        return True
+    
+    except Exception as e:
+        print(f"Error generating master JSON: {e}")
+        return False
+
+
+def rank_stocks_by_investment_potential(results_list):
+    """Rank stocks by investment potential"""
+    # Filter out None results
+    valid_results = [r for r in results_list if r is not None]
+    
+    if not valid_results:
+        print("No valid results to rank")
+        return pd.DataFrame()
+    
+    # Create DataFrame
+    df = pd.DataFrame(valid_results)
+    
+    # Sort by investment score
+    ranked_df = df.sort_values('investment_score', ascending=False).reset_index(drop=True)
+    ranked_df['rank'] = ranked_df.index + 1
+    
+    # Generate markdown report
+    _generate_ranking_report(ranked_df)
+    
+    # Save CSV
+    os.makedirs('reports', exist_ok=True)
+    ranked_df.to_csv('reports/investment_ranking.csv', index=False)
+    
+    return ranked_df
+
+
+def _generate_ranking_report(ranked_df):
+    """Generate markdown report for rankings"""
+    report = "# Stock Investment Ranking Report\n\n"
+    report += f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    report += f"**Total Stocks Analyzed:** {len(ranked_df)}\n\n"
+    
+    # Top 10 recommendations
+    report += "## Top 10 Investment Opportunities\n\n"
+    top_10 = ranked_df.head(10)
+    
+    for _, row in top_10.iterrows():
+        report += f"{int(row['rank'])}. **{row['ticker']}** - {row['name']}\n"
+        report += f"   - Investment Score: {row['investment_score']:.2f}/100\n"
+        report += f"   - Sentiment: {row['sentiment_category']} ({row['avg_sentiment']:.4f})\n"
+        report += f"   - News Articles: {row['news_count']}\n\n"
+    
+    # Full ranking table
+    report += "## Complete Rankings\n\n"
+    report += "| Rank | Ticker | Company | Score | Sentiment | News |\n"
+    report += "|------|--------|---------|-------|-----------|------|\n"
+    
+    for _, row in ranked_df.iterrows():
+        report += f"| {int(row['rank'])} | {row['ticker']} | {row['name'][:30]} | "
+        report += f"{row['investment_score']:.2f} | {row['sentiment_category']} | "
+        report += f"{row['news_count']} |\n"
+    
+    # Methodology
+    report += "\n## Methodology\n\n"
+    report += "Investment scores (0-100) combine:\n"
+    report += "- Sentiment analysis of recent news articles\n"
+    report += "- Historical price momentum\n"
+    report += "- News volume and sentiment strength\n\n"
+    report += "**Disclaimer:** This analysis is for informational purposes only. "
+    report += "Always conduct thorough research and consult with financial advisors.\n"
+    
+    # Save report
+    with open('reports/investment_ranking_report.md', 'w') as f:
+        f.write(report)
+    
+    print("✓ Generated ranking report")
+
+
+def analyze_top_stocks(max_stocks=None):
+    """Main analysis pipeline for top stocks"""
+    if max_stocks is None:
+        max_stocks = MAX_STOCKS
+    
+    print(f"\n{'='*60}")
+    print(f"Starting Stock Analysis Pipeline")
+    print(f"{'='*60}\n")
+    
+    # Step 1: Get top stocks
+    print("Step 1: Fetching top stocks...")
+    top_stocks = get_top_101_stocks()
+    
+    if len(top_stocks) > max_stocks:
+        top_stocks = top_stocks.head(max_stocks)
+    
+    print(f"✓ Retrieved {len(top_stocks)} stocks\n")
+    
+    # Step 2: Analyze sentiment
+    print("Step 2: Analyzing sentiment...")
+    analyzer = SentimentAnalyzer()
+    sentiment_results = []
+    all_predictions_data = []
+    
+    for idx, row in top_stocks.iterrows():
+        try:
+            ticker_data = row.to_dict()
+            ticker = ticker_data['ticker']
+            
+            print(f"  [{idx+1}/{len(top_stocks)}] Processing {ticker}...")
+            
+            # Sentiment analysis
+            sentiment_result = analyzer.analyze_ticker_sentiment(ticker_data)
+            
+            # Get price data
+            price_data = get_stock_price_data(ticker)
+            
+            if price_data is not None and not price_data.empty:
+                # Generate predictions
+                prediction_result = predict_stock_trend(
+                    ticker,
+                    price_data,
+                    sentiment_result['avg_sentiment']
+                )
+                
+                if prediction_result:
+                    # Export individual stock data
+                    export_stock_data_to_json(
+                        ticker,
+                        sentiment_result['name'],
+                        price_data,
+                        prediction_result,
+                        sentiment_result
+                    )
+                    
+                    # Collect for shocking predictions
+                    all_predictions_data.append({
+                        'ticker': ticker,
+                        'name': sentiment_result['name'],
+                        'price_change_pct': prediction_result['price_change_pct'],
+                        'prediction_direction': prediction_result['prediction_direction'],
+                        'current_price': prediction_result['current_price'],
+                        'predicted_price_30d': prediction_result['predicted_price_30d'],
+                        'sentiment_score': sentiment_result['avg_sentiment'],
+                        'investment_score': sentiment_result['investment_score']
+                    })
+            
+            sentiment_results.append(sentiment_result)
+        
+        except Exception as e:
+            print(f"  ✗ Error processing {ticker}: {e}")
+    
+    print(f"\n✓ Completed sentiment analysis\n")
+    
+    # Step 3: Rank stocks
+    print("Step 3: Ranking stocks...")
+    ranked_stocks = rank_stocks_by_investment_potential(sentiment_results)
+    print(f"✓ Ranked {len(ranked_stocks)} stocks\n")
+    
+    # Step 4: Generate shocking predictions
+    print("Step 4: Generating shocking predictions...")
+    shocking_predictions = generate_shocking_predictions(all_predictions_data, top_n=5)
+    print(f"✓ Identified {len(shocking_predictions['all_shocking'])} shocking predictions\n")
+    
+    # Step 5: Generate master JSON
+    print("Step 5: Generating master JSON...")
+    generate_master_stocks_json(ranked_stocks, shocking_predictions)
+    
+    print(f"\n{'='*60}")
+    print(f"Analysis Complete!")
+    print(f"{'='*60}\n")
+    print(f"Results saved to:")
+    print(f"  - stock_data/master_stocks.json")
+    print(f"  - stock_data/[TICKER]_data.json")
+    print(f"  - reports/investment_ranking_report.md")
+    print(f"  - reports/investment_ranking.csv\n")
+    
+    return ranked_stocks, shocking_predictions
+
+
+if __name__ == "__main__":
+    # Run the full analysis
+    ranked_stocks, shocking_predictions = analyze_top_stocks(max_stocks=20)
+    
+    print("\nTop 5 Investments:")
+    print(ranked_stocks[['rank', 'ticker', 'name', 'investment_score']].head())
+    
+    print("\nTop Shocking Increases:")
+    for pred in shocking_predictions['top_increases'][:3]:
+        print(f"  {pred['symbol']}: +{pred['prediction']:.2f}% over {pred['timeframe']}")
