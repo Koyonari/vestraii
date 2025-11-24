@@ -30,10 +30,17 @@ jobs:
       - name: Install dependencies
         run: |
           cd scripts/stock-analysis
-          pip install -r requirements.txt
+          # Ensure pip in the selected Python is used
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
           python -m nltk.downloader vader_lexicon
 
       - name: Run analysis pipeline
+        env:
+          PYTHONPATH: scripts/stock-analysis
         run: |
+          # Ensure we run from the repository root so relative paths resolve the same as local runs
           cd scripts/stock-analysis
+          # Export PYTHONPATH for the current shell (redundant with env but explicit for clarity)
+          export PYTHONPATH=$(pwd):$PYTHONPATH
           python main.py

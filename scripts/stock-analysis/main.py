@@ -9,8 +9,16 @@ import os
 from datetime import datetime
 import traceback
 
-# Add current directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Defensive path setup: ensure this script's directory and the project root
+# are on sys.path so local module imports (e.g., `config`) work in CI/cron.
+script_dir = os.path.dirname(os.path.abspath(__file__))
+repo_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+
+# Insert at front to prefer local modules over installed packages
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
 
 from generate_data import analyze_top_stocks
 from database import DatabaseManager
