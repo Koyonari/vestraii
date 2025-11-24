@@ -46,7 +46,13 @@ jobs:
           # Export PYTHONPATH for the current shell (redundant with env but explicit for clarity)
           export PYTHONPATH=$(pwd):$PYTHONPATH
           python main.py
-
+      - name: Check required env
+        run: |
+          python - <<'PY'
+          import os, json
+          keys = ["NEXT_PUBLIC_SUPABASE_URL","NEXT_PUBLIC_SUPABASE_ANON_KEY"]
+          print(json.dumps({k: bool(os.getenv(k)) for k in keys}))
+          PY
       - name: Verify installed packages
         if: always()
         run: |
