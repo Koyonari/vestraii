@@ -14,9 +14,11 @@ class DatabaseManager:
     def upsert_stock_data(self, stock_data):
         """Insert or update complete stock data in Supabase"""
         try:
+            ticker = stock_data['ticker']
+            
             # Prepare stock data matching existing schema
             stock = {
-                'ticker': stock_data['ticker'],
+                'ticker': ticker,
                 'name': stock_data['name'],
                 'sentiment': {
                     'score': float(stock_data.get('sentiment_score', 0)),
@@ -29,33 +31,35 @@ class DatabaseManager:
                 'last_updated': datetime.now().isoformat()
             }
             
-            # Delete existing data first (if any)
-            self.supabase.table('stocks').delete().eq('id', stock['id']).execute()
-            
-            # Insert new stock data
-            self.supabase.table('stocks').insert(stock).execute()
+            # Upsert stock data (ticker is primary key)
+            self.supabase.table('stocks').upsert(stock, on_conflict='ticker').execute()
 
             # Handle historical prices
             if stock_data.get('historical_data'):
+                # Delete existing historical data
+                self.supabase.table('stock_prices').delete().eq('ticker', ticker).execute()
+                
                 # Prepare historical data
                 historical_data = [
                     {
-                        'ticker': stock_data['ticker'],
+                        'ticker': ticker,
                         'date': price['date'],
                         'price': float(price['price'])
                     }
                     for price in stock_data['historical_data']
                 ]
                 
-                # Delete existing historical data
-                self.supabase.table('stock_prices').delete().eq('ticker', stock_data['ticker']).execute()
-                
-                # Insert new historical data
-                if historical_data:
-                    self.supabase.table('stock_prices').insert(historical_data).execute()
+                # Insert new historical data in chunks
+                chunk_size = 100
+                for i in range(0, len(historical_data), chunk_size):
+                    chunk = historical_data[i:i + chunk_size]
+                    self.supabase.table('stock_prices').insert(chunk).execute()
 
             # Handle predictions
             if stock_data.get('prediction') and stock_data['prediction'].get('data'):
+                # Delete existing predictions
+                self.supabase.table('stock_predictions').delete().eq('ticker', ticker).execute()
+                
                 predictions = []
                 for i in range(len(stock_data['prediction']['data'])):
                     pred_data = stock_data['prediction']['data'][i]
@@ -63,109 +67,26 @@ class DatabaseManager:
                     lower = stock_data['prediction']['lower_bound'][i] if stock_data['prediction'].get('lower_bound') else None
                     
                     predictions.append({
-                        'ticker': stock_data['ticker'],
+                        'ticker': ticker,
                         'date': pred_data['date'],
                         'price': float(pred_data['price']),
                         'upper_bound': float(upper['price']) if upper else None,
                         'lower_bound': float(lower['price']) if lower else None
                     })
                 
-                # Delete existing predictions
-                self.supabase.table('stock_predictions').delete().eq('ticker', stock_data['ticker']).execute()
-                
-                # Insert new predictions
-                if predictions:
-                    self.supabase.table('stock_predictions').insert(predictions).execute()
+                # Insert new predictions in chunks
+                chunk_size = 100
+                for i in range(0, len(predictions), chunk_size):
+                    chunk = predictions[i:i + chunk_size]
+                    self.supabase.table('stock_predictions').insert(chunk).execute()
 
             return True
 
         except Exception as e:
             print(f"Error upserting stock data for {stock_data.get('ticker', 'unknown')}: {e}")
+            import traceback
+            traceback.print_exc()
             return False
-            
-    def _ensure_tables_exist(self):
-        """Ensure all required tables exist with correct schema"""
-        try:
-            # Create stocks table
-            self.supabase.table('stocks').select('*').limit(1).execute()
-        except Exception as e:
-            if 'does not exist' in str(e).lower():
-                self._create_tables()
-    
-    def _create_tables(self):
-        """Create database tables if they don't exist"""
-        try:
-            # Create stocks table
-            self.supabase.query("""
-                create table if not exists public.stocks (
-                    ticker text not null,
-                    name text,
-                    sentiment_score float8,
-                    sentiment_category text,
-                    sentiment jsonb,
-                    news_count integer,
-                    rank integer,
-                    investment_score float8,
-                    last_updated timestamp with time zone,
-                    is_public boolean default true,
-                    constraint stocks_pkey primary key (ticker)
-                );
-            """).execute()
-
-            # Create stock_prices table
-            self.supabase.query("""
-                create table if not exists public.stock_prices (
-                    ticker text not null,
-                    date date not null,
-                    price float8,
-                    is_public boolean default true,
-                    constraint stock_prices_pkey primary key (ticker, date)
-                );
-            """).execute()
-
-            # Create stock_predictions table
-            self.supabase.query("""
-                create table if not exists public.stock_predictions (
-                    ticker text not null,
-                    date date not null,
-                    price float8,
-                    upper_bound float8,
-                    lower_bound float8,
-                    is_public boolean default true,
-                    constraint stock_predictions_pkey primary key (ticker, date)
-                );
-            """).execute()
-
-            # Enable RLS and create policies
-            policies = [
-                "alter table stocks enable row level security;",
-                "alter table stock_prices enable row level security;",
-                "alter table stock_predictions enable row level security;",
-                
-                # Stocks policies
-                """create policy "Public stocks are viewable by everyone"
-                   on stocks for select using (is_public = true);""",
-                """create policy "Authenticated users can insert public stocks"
-                   on stocks for insert with check (is_public = true);""",
-                """create policy "Authenticated users can update public stocks"
-                   on stocks for update using (is_public = true)
-                   with check (is_public = true);""",
-                """create policy "Authenticated users can delete public stocks"
-                   on stocks for delete using (is_public = true);""",
-                
-                # Similar policies for other tables...
-            ]
-            
-            for policy in policies:
-                try:
-                    self.supabase.query(policy).execute()
-                except Exception as e:
-                    if 'already exists' not in str(e).lower():
-                        print(f"Warning: Could not create policy: {e}")
-        
-        except Exception as e:
-            print(f"Error creating tables: {e}")
-            raise
     
     def write_analysis_to_database(self, ranked_stocks, shocking_predictions=None):
         """Write complete analysis results to database"""
@@ -198,6 +119,8 @@ class DatabaseManager:
                     
             except Exception as e:
                 print(f"Error processing {stock.get('ticker', 'unknown')}: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 error_count += 1
                 
         print(f"\nDatabase Write Summary:")

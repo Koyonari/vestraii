@@ -241,14 +241,8 @@ def scrape_finviz_news(ticker):
 
 def scrape_yahoo_finance_news(ticker):
     """Scrape news from Yahoo Finance for a specific ticker"""
+    # Yahoo Finance changed their structure - now use API approach
     base_url = f'https://finance.yahoo.com/quote/{ticker}'
-    
-    # Try different URLs if one fails
-    urls = [
-        f'{base_url}/news',
-        base_url,  # Main quote page often has news
-        f'{base_url}?p={ticker}'  # Alternative format
-    ]
     
     headers = {
         'User-Agent': get_random_user_agent(),
@@ -260,59 +254,76 @@ def scrape_yahoo_finance_news(ticker):
     }
     
     news_data = []
-    for url in urls:
+    
+    try:
+        time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
+        
+        # Try using yfinance news (more reliable)
         try:
-            time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
+            import yfinance as yf
+            stock = yf.Ticker(ticker)
+            news = stock.news
             
-            response = requests.get(url, headers=headers, timeout=15)
+            if news:
+                for item in news[:20]:  # Limit to 20 items
+                    headline = item.get('title', '')
+                    if headline and len(headline) > 5:
+                        news_data.append([
+                            datetime.now().strftime('%m/%d/%y'),
+                            'N/A',
+                            headline,
+                            item.get('publisher', 'Yahoo Finance')
+                        ])
+                
+                if news_data:
+                    return pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source'])
+        except Exception as e:
+            print(f"Warning: yfinance news failed for {ticker}: {e}")
+        
+        # Fallback: try scraping main quote page
+        try:
+            response = requests.get(base_url, headers=headers, timeout=15)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Try different selectors for news items
+            # Look for any news-like elements
             news_items = (
-                soup.select('div[data-test="story"]') or  # New Yahoo Finance selector
-                soup.select('li.js-stream-content') or
-                soup.select('div.news-container') or
-                soup.find_all('h3') or  # Generic h3 selector
-                soup.find_all('a', {'data-test': 'quoteLink'})  # Alternative news links
+                soup.select('h3') +
+                soup.select('h4') +
+                soup.find_all('a', href=lambda x: x and '/news/' in str(x))
             )
             
-            if news_items:
-                for item in news_items:
-                    headline_elem = (
-                        item.select_one('h3') or 
-                        item.select_one('h4') or 
-                        item.select_one('a') or 
-                        item
-                    )
-                    
-                    if headline_elem:
-                        headline = headline_elem.text.strip()
-                        if headline and len(headline) > 5:  # Basic validation
-                            news_data.append([
-                                datetime.now().strftime('%m/%d/%y'),
-                                'N/A',
-                                headline,
-                                'Yahoo Finance'
-                            ])
+            for item in news_items[:20]:
+                headline = item.text.strip()
+                if headline and len(headline) > 10 and not any(skip in headline.lower() for skip in ['sponsored', 'advertisement', 'sign in', 'subscribe']):
+                    news_data.append([
+                        datetime.now().strftime('%m/%d/%y'),
+                        'N/A',
+                        headline,
+                        'Yahoo Finance'
+                    ])
+            
+            # Remove duplicates
+            if news_data:
+                seen = set()
+                unique_news = []
+                for item in news_data:
+                    if item[2] not in seen:
+                        seen.add(item[2])
+                        unique_news.append(item)
+                news_data = unique_news
                 
-                if news_data:  # If we found news, no need to try other URLs
-                    break
-                    
-        except requests.exceptions.RequestException as e:
-            print(f"Warning: Failed to fetch {url} - {str(e)}")
-            continue
         except Exception as e:
-            print(f"Warning: Error processing {url} - {str(e)}")
-            continue
+            print(f"Warning: Failed to scrape Yahoo Finance page for {ticker}: {e}")
+    
+    except Exception as e:
+        print(f"Error in Yahoo Finance scraping for {ticker}: {e}")
     
     if not news_data:
         print(f"No Yahoo Finance news found for {ticker}")
         
     return pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source'])
-
-
 def get_stock_price_data(ticker, days=90):
     """Get historical stock price data using yfinance"""
     try:

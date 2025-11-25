@@ -58,8 +58,8 @@ def export_stock_data_to_json(ticker, name, price_data, prediction_result, senti
             'ticker': ticker,
             'name': name,
             'sentiment': {
-                'score': float(sentiment_data['compound']),
-                'category': sentiment_data['category'],
+                'score': float(sentiment_data['compound']) if 'compound' in sentiment_data else float(sentiment_data.get('avg_sentiment', 0)),
+                'category': sentiment_data['category'] if 'category' in sentiment_data else sentiment_data.get('sentiment_category', 'Neutral'),
                 'investment_score': float(sentiment_data['investment_score'])
             },
             'historical_data': historical_data,
@@ -71,8 +71,9 @@ def export_stock_data_to_json(ticker, name, price_data, prediction_result, senti
         
     except Exception as e:
         print(f"Error exporting data for {ticker}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return None
-
 
 def generate_master_stocks_json(ranked_stocks, shocking_predictions):
     """Generate master JSON file with all analyzed stocks"""

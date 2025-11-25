@@ -52,7 +52,7 @@ class SentimentAnalyzer:
         while attempts < max_attempts and not sources_data:
             if attempts > 0:
                 print(f"Retrying news fetch for {ticker} (attempt {attempts+1}/{max_attempts})...")
-                time.sleep(5)  # Wait between retries
+                time.sleep(5)
             
             # Try Finviz first
             finviz_df = scrape_finviz_news(ticker)
@@ -66,7 +66,7 @@ class SentimentAnalyzer:
             
             attempts += 1
             
-            if sources_data:  # If we got news from any source
+            if sources_data:
                 break
         
         # Combine available news
@@ -99,17 +99,17 @@ class SentimentAnalyzer:
         sentiment_counts = filtered_df['category'].value_counts()
         
         # Calculate investment score (0-100)
-        normalized_sentiment = (avg_sentiment + 1) / 2  # Scale from -1,1 to 0,1
+        normalized_sentiment = (avg_sentiment + 1) / 2
         investment_score = 50 + (normalized_sentiment - 0.5) * 100
-        
-        # Apply sentiment strength as a confidence multiplier
         investment_score = min(100, max(0, investment_score * (1 + sentiment_strength * 0.5)))
         
-        return {
+        result = {
             'ticker': ticker,
             'name': name,
             'avg_sentiment': round(avg_sentiment, 4),
+            'compound': round(avg_sentiment, 4),  # Add for compatibility
             'sentiment_category': sentiment_category,
+            'category': sentiment_category,  # Add for compatibility
             'bullish_count': int(sentiment_counts.get('Bullish', 0)),
             'neutral_count': int(sentiment_counts.get('Neutral', 0)),
             'bearish_count': int(sentiment_counts.get('Bearish', 0)),
@@ -118,8 +118,8 @@ class SentimentAnalyzer:
             'investment_score': round(investment_score, 2),
             'news_details': filtered_df
         }
-    
-    def _parse_date(self, row):
+        
+        return result    def _parse_date(self, row):
         """Parse date from news row"""
         try:
             date_str = row['date']
