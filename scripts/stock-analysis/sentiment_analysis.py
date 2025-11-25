@@ -119,7 +119,9 @@ class SentimentAnalyzer:
             'news_details': filtered_df
         }
         
-        return result    def _parse_date(self, row):
+        return result    
+
+    def _parse_date(self, row):
         """Parse date from news row"""
         try:
             date_str = row['date']
