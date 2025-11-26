@@ -4,36 +4,27 @@ from pathlib import Path
 
 project_root = Path(__file__).parent.parent.parent
 env_path = project_root / '.env.local'
-
 load_dotenv(env_path)
 
 # Supabase Configuration
 SUPABASE_URL = os.getenv('NEXT_PUBLIC_SUPABASE_URL')
-SUPABASE_KEY = os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
+
+# Use service role key if available (for server-side operations), otherwise use anon key
+SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("Missing required Supabase environment variables")
 
 # Analysis Configuration
-MAX_STOCKS = 100
-DAYS_BACK = 90
-PREDICTION_DAYS = 30
-CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '10'))
+MAX_STOCKS = int(os.getenv('MAX_STOCKS', '100'))
+DAYS_BACK = int(os.getenv('DAYS_BACK', '90'))
+PREDICTION_DAYS = int(os.getenv('PREDICTION_DAYS', '30'))
 
 # Rate Limiting
 REQUEST_DELAY_MIN = float(os.getenv('REQUEST_DELAY_MIN', '1.5'))
 REQUEST_DELAY_MAX = float(os.getenv('REQUEST_DELAY_MAX', '3.0'))
-CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '5'))  # Process 5 stocks at a time
-CHUNK_DELAY = float(os.getenv('CHUNK_DELAY', '5.0'))  # 5 second delay between chunks
-
-# Fallback tickers (top companies) if web scraping fails
-FALLBACK_TICKERS = [
-    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'BRK-B', 'JPM', 'JNJ', 'V',
-    'PG', 'XOM', 'MA', 'HD', 'CVX', 'BAC', 'ABBV', 'PFE', 'AVGO', 'COST',
-    'DIS', 'KO', 'PEP', 'TMO', 'CSCO', 'ABT', 'MRK', 'ORCL', 'ADBE', 'CRM',
-    'NKE', 'AMD', 'NFLX', 'CMCSA', 'INTC', 'VZ', 'QCOM', 'TMUS', 'PM', 'TXN',
-    'UNH', 'WMT', 'CRM', 'LLY', 'INTU', 'ACN', 'DHR', 'NEE', 'BMY', 'RTX'
-]
+CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '5'))
+CHUNK_DELAY = float(os.getenv('CHUNK_DELAY', '5.0'))
 
 # User Agents for Web Scraping
 USER_AGENTS = [
