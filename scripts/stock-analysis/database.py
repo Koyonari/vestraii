@@ -15,6 +15,7 @@ class DatabaseManager:
         """Insert or update complete stock data in Supabase"""
         try:
             ticker = stock_data['ticker']
+            print(f"  Upserting {ticker}...")
             
             # Prepare stock data matching existing schema
             stock = {
@@ -33,11 +34,14 @@ class DatabaseManager:
             
             # Upsert stock data (ticker is primary key)
             self.supabase.table('stocks').upsert(stock, on_conflict='ticker').execute()
+            print(f"    ✓ Stock data upserted")
 
             # Handle historical prices
-            if stock_data.get('historical_data'):
+            historical_count = 0
+            if stock_data.get('historical_data') and len(stock_data['historical_data']) > 0:
                 # Delete existing historical data
                 self.supabase.table('stock_prices').delete().eq('ticker', ticker).execute()
+                print(f"    Cleared old historical prices")
                 
                 # Prepare historical data
                 historical_data = [
@@ -54,24 +58,35 @@ class DatabaseManager:
                 for i in range(0, len(historical_data), chunk_size):
                     chunk = historical_data[i:i + chunk_size]
                     self.supabase.table('stock_prices').insert(chunk).execute()
+                    historical_count += len(chunk)
+                
+                print(f"    ✓ Inserted {historical_count} historical prices")
+            else:
+                print(f"    ⚠ No historical data for {ticker}")
 
             # Handle predictions
-            if stock_data.get('prediction') and stock_data['prediction'].get('data'):
+            prediction_count = 0
+            if stock_data.get('prediction') and stock_data['prediction'].get('data') and len(stock_data['prediction']['data']) > 0:
                 # Delete existing predictions
                 self.supabase.table('stock_predictions').delete().eq('ticker', ticker).execute()
+                print(f"    Cleared old predictions")
                 
                 predictions = []
-                for i in range(len(stock_data['prediction']['data'])):
-                    pred_data = stock_data['prediction']['data'][i]
-                    upper = stock_data['prediction']['upper_bound'][i] if stock_data['prediction'].get('upper_bound') else None
-                    lower = stock_data['prediction']['lower_bound'][i] if stock_data['prediction'].get('lower_bound') else None
+                pred_data_list = stock_data['prediction']['data']
+                upper_bound_list = stock_data['prediction'].get('upper_bound', [])
+                lower_bound_list = stock_data['prediction'].get('lower_bound', [])
+                
+                for i in range(len(pred_data_list)):
+                    pred_data = pred_data_list[i]
+                    upper = upper_bound_list[i] if i < len(upper_bound_list) else None
+                    lower = lower_bound_list[i] if i < len(lower_bound_list) else None
                     
                     predictions.append({
                         'ticker': ticker,
                         'date': pred_data['date'],
                         'price': float(pred_data['price']),
-                        'upper_bound': float(upper['price']) if upper else None,
-                        'lower_bound': float(lower['price']) if lower else None
+                        'upper_bound': float(upper['price']) if upper and 'price' in upper else None,
+                        'lower_bound': float(lower['price']) if lower and 'price' in lower else None
                     })
                 
                 # Insert new predictions in chunks
@@ -79,11 +94,17 @@ class DatabaseManager:
                 for i in range(0, len(predictions), chunk_size):
                     chunk = predictions[i:i + chunk_size]
                     self.supabase.table('stock_predictions').insert(chunk).execute()
+                    prediction_count += len(chunk)
+                
+                print(f"    ✓ Inserted {prediction_count} predictions")
+            else:
+                print(f"    ⚠ No prediction data for {ticker}")
 
+            print(f"  ✓ {ticker} complete: {historical_count} prices, {prediction_count} predictions")
             return True
 
         except Exception as e:
-            print(f"Error upserting stock data for {stock_data.get('ticker', 'unknown')}: {e}")
+            print(f"  ✗ Error upserting stock data for {stock_data.get('ticker', 'unknown')}: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -92,6 +113,8 @@ class DatabaseManager:
         """Write complete analysis results to database"""
         success_count = 0
         error_count = 0
+        
+        print(f"\nWriting {len(ranked_stocks)} stocks to database...")
         
         for idx, stock in ranked_stocks.iterrows():
             try:
@@ -118,13 +141,30 @@ class DatabaseManager:
                     error_count += 1
                     
             except Exception as e:
-                print(f"Error processing {stock.get('ticker', 'unknown')}: {str(e)}")
+                print(f"  ✗ Error processing {stock.get('ticker', 'unknown')}: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 error_count += 1
-                
-        print(f"\nDatabase Write Summary:")
+        
+        print(f"\n{'='*70}")
+        print(f"Database Write Summary:")
+        print(f"{'='*70}")
         print(f"✓ Successfully wrote {success_count} stocks")
         print(f"✗ Failed to write {error_count} stocks")
+        
+        # Get some statistics from database
+        try:
+            stocks_result = self.supabase.table('stocks').select('ticker').execute()
+            prices_result = self.supabase.table('stock_prices').select('ticker', count='exact').execute()
+            predictions_result = self.supabase.table('stock_predictions').select('ticker', count='exact').execute()
+            
+            print(f"\nDatabase Statistics:")
+            print(f"  Total stocks in DB: {len(stocks_result.data)}")
+            print(f"  Total price records: {prices_result.count if hasattr(prices_result, 'count') else 'N/A'}")
+            print(f"  Total prediction records: {predictions_result.count if hasattr(predictions_result, 'count') else 'N/A'}")
+        except Exception as e:
+            print(f"  Could not fetch database statistics: {e}")
+        
+        print(f"{'='*70}\n")
         
         return success_count, error_count

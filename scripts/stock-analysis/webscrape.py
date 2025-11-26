@@ -30,11 +30,37 @@ def get_top_101_stocks():
                 'Connection': 'keep-alive',
             }
             sp500_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-            sp500_response = requests.get(sp500_url, headers=headers)
-            from io import StringIO
-            sp500_table = pd.read_html(StringIO(sp500_response.text))
-            sp500_df = sp500_table[0]
-            all_tickers.update(sp500_df['Symbol'].str.strip().tolist())
+            sp500_response = requests.get(sp500_url, headers=headers, timeout=15)
+            sp500_response.raise_for_status()
+            
+            # Parse tables from Wikipedia
+            tables = pd.read_html(sp500_response.text)
+            
+            # The first table usually contains the S&P 500 companies
+            sp500_df = tables[0]
+            
+            # Try different possible column names for ticker symbol
+            ticker_column = None
+            for col in ['Symbol', 'Ticker', 'Ticker symbol', 'Stock']:
+                if col in sp500_df.columns:
+                    ticker_column = col
+                    break
+            
+            if ticker_column:
+                tickers = sp500_df[ticker_column].dropna().str.strip().tolist()
+                all_tickers.update(tickers)
+                print(f"✓ Fetched {len(tickers)} S&P 500 tickers")
+            else:
+                # If no ticker column found, try to extract from first column
+                print(f"Available columns: {sp500_df.columns.tolist()}")
+                if len(sp500_df.columns) > 0:
+                    # Usually the first column is the ticker
+                    tickers = sp500_df.iloc[:, 0].dropna().str.strip().tolist()
+                    all_tickers.update(tickers)
+                    print(f"✓ Fetched {len(tickers)} S&P 500 tickers from first column")
+                else:
+                    raise ValueError("Could not identify ticker column in S&P 500 table")
+                    
         except Exception as e:
             print(f"Warning: Could not fetch S&P 500 data: {e}")
         
@@ -42,11 +68,23 @@ def get_top_101_stocks():
         try:
             ndx_url = "https://en.wikipedia.org/wiki/Nasdaq-100"
             headers['User-Agent'] = get_random_user_agent()  # Rotate user agent
-            ndx_response = requests.get(ndx_url, headers=headers)
-            ndx_table = pd.read_html(StringIO(ndx_response.text))
-            ndx_df = next((df for df in ndx_table if 'Ticker' in df.columns), None)
+            ndx_response = requests.get(ndx_url, headers=headers, timeout=15)
+            ndx_response.raise_for_status()
+            
+            ndx_tables = pd.read_html(ndx_response.text)
+            
+            # Find the table with ticker information
+            ndx_df = None
+            for table in ndx_tables:
+                if 'Ticker' in table.columns or 'Symbol' in table.columns:
+                    ndx_df = table
+                    break
+            
             if ndx_df is not None:
-                all_tickers.update(ndx_df['Ticker'].str.strip().tolist())
+                ticker_col = 'Ticker' if 'Ticker' in ndx_df.columns else 'Symbol'
+                tickers = ndx_df[ticker_col].dropna().str.strip().tolist()
+                all_tickers.update(tickers)
+                print(f"✓ Fetched {len(tickers)} NASDAQ 100 tickers")
         except Exception as e:
             print(f"Warning: Could not fetch NASDAQ 100 data: {e}")
         
@@ -54,17 +92,35 @@ def get_top_101_stocks():
         try:
             dow_url = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
             headers['User-Agent'] = get_random_user_agent()  # Rotate user agent
-            dow_response = requests.get(dow_url, headers=headers)
-            dow_table = pd.read_html(StringIO(dow_response.text))
-            dow_df = next((df for df in dow_table if 'Symbol' in df.columns), None)
+            dow_response = requests.get(dow_url, headers=headers, timeout=15)
+            dow_response.raise_for_status()
+            
+            dow_tables = pd.read_html(dow_response.text)
+            
+            # Find the table with ticker information
+            dow_df = None
+            for table in dow_tables:
+                if 'Symbol' in table.columns or 'Ticker' in table.columns:
+                    dow_df = table
+                    break
+            
             if dow_df is not None:
-                all_tickers.update(dow_df['Symbol'].str.strip().tolist())
+                ticker_col = 'Symbol' if 'Symbol' in dow_df.columns else 'Ticker'
+                tickers = dow_df[ticker_col].dropna().str.strip().tolist()
+                all_tickers.update(tickers)
+                print(f"✓ Fetched {len(tickers)} Dow Jones tickers")
         except Exception as e:
             print(f"Warning: Could not fetch Dow Jones data: {e}")
-            
-        # Clean tickers and add fallback if needed
-        all_tickers.update(FALLBACK_TICKERS)
-        tickers = [t.strip().replace('.','-') for t in all_tickers if t and isinstance(t, str)]
+        
+        # If we have very few tickers, add fallback tickers
+        if len(all_tickers) < 50:
+            print(f"Only {len(all_tickers)} tickers found, adding fallback tickers...")
+            all_tickers.update(FALLBACK_TICKERS)
+        
+        # Clean tickers
+        tickers = [t.strip().replace('.', '-') for t in all_tickers if t and isinstance(t, str) and len(t) <= 10]
+        tickers = list(set(tickers))  # Remove duplicates
+        
         print(f"Fetching market cap data for {len(tickers)} stocks...")
         
         # Get market cap data in chunks
@@ -78,17 +134,19 @@ def get_top_101_stocks():
                     stock = yf.Ticker(ticker)
                     info = stock.info
                     market_cap = info.get('marketCap', 0)
-                    name = info.get('shortName', ticker)
+                    name = info.get('shortName', info.get('longName', ticker))
                     sector = info.get('sector', 'Unknown')
                     
-                    chunk_data.append({
-                        'ticker': ticker,
-                        'name': name,
-                        'market_cap': market_cap,
-                        'sector': sector
-                    })
+                    if market_cap and market_cap > 0:
+                        chunk_data.append({
+                            'ticker': ticker,
+                            'name': name,
+                            'market_cap': market_cap,
+                            'sector': sector
+                        })
                 except Exception as e:
-                    print(f"Error fetching data for {ticker}: {e}")
+                    # Silently skip failed tickers
+                    pass
                 
                 # Rate limiting
                 time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
@@ -107,7 +165,7 @@ def get_top_101_stocks():
         
         print(f"\nFound {len(stocks_df)} valid stocks with market cap data")
         if len(stocks_df) < 100:
-            print("Warning: Less than 100 stocks available for analysis")
+            print(f"Warning: Only {len(stocks_df)} stocks available for analysis")
         
         # Take top 100 by market cap
         top_stocks = stocks_df.head(100)
@@ -115,6 +173,8 @@ def get_top_101_stocks():
     
     except Exception as e:
         print(f"Error getting top stocks: {e}")
+        import traceback
+        traceback.print_exc()
         return _get_fallback_stocks()
 
 
@@ -128,13 +188,13 @@ def _get_fallback_stocks():
             stock = yf.Ticker(ticker)
             info = stock.info
             market_cap = info.get('marketCap', 0)
-            name = info.get('shortName', ticker)
+            name = info.get('shortName', info.get('longName', ticker))
             sector = info.get('sector', 'Unknown')
             
             results.append({
                 'ticker': ticker,
                 'name': name,
-                'market_cap': market_cap,
+                'market_cap': market_cap if market_cap else 0,
                 'sector': sector
             })
         except Exception as e:
@@ -148,7 +208,9 @@ def _get_fallback_stocks():
         
         time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
     
-    return pd.DataFrame(results)
+    df = pd.DataFrame(results)
+    df = df[df['market_cap'] > 0]  # Filter out invalid entries
+    return df.sort_values('market_cap', ascending=False).reset_index(drop=True)
 
 
 def scrape_finviz_news(ticker):
@@ -161,7 +223,7 @@ def scrape_finviz_news(ticker):
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
         'Cache-Control': 'max-age=0',
-        'Referer': 'https://finviz.com/'  # Add referrer
+        'Referer': 'https://finviz.com/'
     }
     
     max_retries = 3
@@ -170,12 +232,10 @@ def scrape_finviz_news(ticker):
     for attempt in range(max_retries):
         try:
             if attempt > 0:
-                print(f"Retry {attempt}/{max_retries} for {ticker}...")
                 time.sleep(retry_delay)
             
             time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
             
-            # First try to verify the ticker exists
             response = requests.get(url, headers=headers, timeout=15)
             response.raise_for_status()
             
@@ -183,13 +243,11 @@ def scrape_finviz_news(ticker):
             
             # Check if we got a valid page
             if "is not found" in soup.text or "Error" in soup.title.text:
-                print(f"Warning: {ticker} not found on Finviz")
                 return pd.DataFrame()
             
             news_table = soup.find(id='news-table')
             if not news_table:
-                print(f"Warning: No news table found for {ticker} on Finviz")
-                continue  # Try again if we didn't get the news table
+                continue
             
             news_data = []
             current_date = datetime.now().strftime('%m/%d/%y')
@@ -201,39 +259,30 @@ def scrape_finviz_news(ticker):
                 try:
                     date_cell = row.td.text.strip().split() if row.td and row.td.text else []
                     
-                    # Parse date and time
                     date_str = current_date
                     time_str = ''
                     
                     if len(date_cell) >= 1:
-                        if ':' in date_cell[0]:  # Just time, use today's date
+                        if ':' in date_cell[0]:
                             time_str = date_cell[0]
-                        elif len(date_cell) >= 2:  # Date and time
+                        elif len(date_cell) >= 2:
                             date_str = date_cell[0]
                             time_str = date_cell[1] if ':' in date_cell[1] else ''
                     
                     headline = row.a.text.strip() if row.a else None
                     source = row.span.text.strip() if row.span else "Unknown"
                     
-                    if headline and len(headline) > 5:  # Basic validation
+                    if headline and len(headline) > 5:
                         news_data.append([date_str, time_str, headline, source])
                 
-                except Exception as e:
-                    print(f"Warning: Error parsing news row for {ticker}: {e}")
+                except Exception:
                     continue
             
-            if news_data:  # If we found any valid news
+            if news_data:
                 return pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source'])
             
-        except requests.exceptions.RequestException as e:
-            print(f"Warning: Request failed for {ticker} on attempt {attempt+1}: {e}")
-            if attempt == max_retries - 1:
-                print(f"Error: Failed to scrape {ticker} news from Finviz after {max_retries} attempts")
-                return pd.DataFrame()
         except Exception as e:
-            print(f"Warning: Unexpected error for {ticker} on attempt {attempt+1}: {e}")
             if attempt == max_retries - 1:
-                print(f"Error: Failed to process {ticker} news after {max_retries} attempts")
                 return pd.DataFrame()
     
     return pd.DataFrame()
@@ -241,31 +290,19 @@ def scrape_finviz_news(ticker):
 
 def scrape_yahoo_finance_news(ticker):
     """Scrape news from Yahoo Finance for a specific ticker"""
-    # Yahoo Finance changed their structure - now use API approach
-    base_url = f'https://finance.yahoo.com/quote/{ticker}'
-    
-    headers = {
-        'User-Agent': get_random_user_agent(),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Cache-Control': 'max-age=0'
-    }
-    
     news_data = []
     
     try:
         time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
         
-        # Try using yfinance news (more reliable)
+        # Use yfinance news (more reliable)
         try:
             import yfinance as yf
             stock = yf.Ticker(ticker)
             news = stock.news
             
             if news:
-                for item in news[:20]:  # Limit to 20 items
+                for item in news[:20]:
                     headline = item.get('title', '')
                     if headline and len(headline) > 5:
                         news_data.append([
@@ -277,17 +314,24 @@ def scrape_yahoo_finance_news(ticker):
                 
                 if news_data:
                     return pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source'])
-        except Exception as e:
-            print(f"Warning: yfinance news failed for {ticker}: {e}")
+        except Exception:
+            pass
         
         # Fallback: try scraping main quote page
+        base_url = f'https://finance.yahoo.com/quote/{ticker}'
+        headers = {
+            'User-Agent': get_random_user_agent(),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+        }
+        
         try:
             response = requests.get(base_url, headers=headers, timeout=15)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Look for any news-like elements
             news_items = (
                 soup.select('h3') +
                 soup.select('h4') +
@@ -304,7 +348,6 @@ def scrape_yahoo_finance_news(ticker):
                         'Yahoo Finance'
                     ])
             
-            # Remove duplicates
             if news_data:
                 seen = set()
                 unique_news = []
@@ -314,16 +357,15 @@ def scrape_yahoo_finance_news(ticker):
                         unique_news.append(item)
                 news_data = unique_news
                 
-        except Exception as e:
-            print(f"Warning: Failed to scrape Yahoo Finance page for {ticker}: {e}")
+        except Exception:
+            pass
     
-    except Exception as e:
-        print(f"Error in Yahoo Finance scraping for {ticker}: {e}")
+    except Exception:
+        pass
     
-    if not news_data:
-        print(f"No Yahoo Finance news found for {ticker}")
-        
-    return pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source'])
+    return pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source']) if news_data else pd.DataFrame()
+
+
 def get_stock_price_data(ticker, days=90):
     """Get historical stock price data using yfinance"""
     try:
@@ -334,13 +376,11 @@ def get_stock_price_data(ticker, days=90):
         hist = stock.history(start=start_date, end=end_date)
         
         if hist.empty:
-            print(f"No price data found for {ticker}")
             return None
         
         return hist
     
     except Exception as e:
-        print(f"Error getting price data for {ticker}: {e}")
         return None
 
 

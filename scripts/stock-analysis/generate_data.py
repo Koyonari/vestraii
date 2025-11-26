@@ -75,6 +75,7 @@ def export_stock_data_to_json(ticker, name, price_data, prediction_result, senti
         traceback.print_exc()
         return None
 
+
 def generate_master_stocks_json(ranked_stocks, shocking_predictions):
     """Generate master JSON file with all analyzed stocks"""
     try:
@@ -219,14 +220,49 @@ def analyze_top_stocks(max_stocks=None):
                 )
                 
                 if prediction_result:
-                    # Export individual stock data
-                    export_stock_data_to_json(
-                        ticker,
-                        sentiment_result['name'],
-                        price_data,
-                        prediction_result,
-                        sentiment_result
+                    # Store historical and prediction data in sentiment_result
+                    # Convert historical prices to list of dicts
+                    historical_data = [
+                        {
+                            'date': date.strftime('%Y-%m-%d'),
+                            'price': float(price)
+                        }
+                        for date, price in price_data['Close'].items()
+                    ]
+                    
+                    # Format prediction data with dates
+                    prediction_dates = pd.date_range(
+                        start=price_data.index[-1] + pd.Timedelta(days=1),
+                        periods=len(prediction_result['predictions'])
                     )
+                    
+                    prediction_data = {
+                        'data': [
+                            {
+                                'date': date.strftime('%Y-%m-%d'),
+                                'price': float(price)
+                            }
+                            for date, price in zip(prediction_dates, prediction_result['predictions'])
+                        ],
+                        'upper_bound': [
+                            {
+                                'date': date.strftime('%Y-%m-%d'),
+                                'price': float(price)
+                            }
+                            for date, price in zip(prediction_dates, prediction_result['upper_bound'])
+                        ],
+                        'lower_bound': [
+                            {
+                                'date': date.strftime('%Y-%m-%d'),
+                                'price': float(price)
+                            }
+                            for date, price in zip(prediction_dates, prediction_result['lower_bound'])
+                        ]
+                    }
+                    
+                    # Add to sentiment result
+                    sentiment_result['historical_data'] = historical_data
+                    sentiment_result['prediction'] = prediction_data
                     
                     # Collect for shocking predictions
                     all_predictions_data.append({
@@ -239,11 +275,21 @@ def analyze_top_stocks(max_stocks=None):
                         'sentiment_score': sentiment_result['avg_sentiment'],
                         'investment_score': sentiment_result['investment_score']
                     })
+                else:
+                    # No predictions available
+                    sentiment_result['historical_data'] = []
+                    sentiment_result['prediction'] = {'data': [], 'upper_bound': [], 'lower_bound': []}
+            else:
+                # No price data available
+                sentiment_result['historical_data'] = []
+                sentiment_result['prediction'] = {'data': [], 'upper_bound': [], 'lower_bound': []}
             
             sentiment_results.append(sentiment_result)
         
         except Exception as e:
             print(f"  ✗ Error processing {ticker}: {e}")
+            import traceback
+            traceback.print_exc()
     
     print(f"\n✓ Completed sentiment analysis\n")
     
