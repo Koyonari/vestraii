@@ -17,8 +17,9 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 # Analysis Configuration
 MAX_STOCKS = int(os.getenv('MAX_STOCKS', '100'))
-DAYS_BACK = int(os.getenv('DAYS_BACK', '90'))
-PREDICTION_DAYS = int(os.getenv('PREDICTION_DAYS', '30'))
+DAYS_BACK = int(os.getenv('DAYS_BACK', '90'))  # 3 months of historical data
+PREDICTION_DAYS = int(os.getenv('PREDICTION_DAYS', '30'))  # 1 month of predictions
+HISTORICAL_DAYS = 90  # Explicitly set to 90 days (3 months)
 
 # Rate Limiting
 REQUEST_DELAY_MIN = float(os.getenv('REQUEST_DELAY_MIN', '1.5'))

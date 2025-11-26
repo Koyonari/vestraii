@@ -208,11 +208,11 @@ def analyze_top_stocks(max_stocks=None):
             # Sentiment analysis
             sentiment_result = analyzer.analyze_ticker_sentiment(ticker_data)
             
-            # Get price data
-            price_data = get_stock_price_data(ticker)
+            # Get price data - explicitly request 90 days (3 months)
+            price_data = get_stock_price_data(ticker, days=90)
             
             if price_data is not None and not price_data.empty:
-                # Generate predictions
+                # Generate predictions - 30 days (1 month) into the future
                 prediction_result = predict_stock_trend(
                     ticker,
                     price_data,

@@ -23,6 +23,8 @@ def get_top_101_stocks():
         
         # Try S&P 500 components
         try:
+            from io import StringIO
+            
             headers = {
                 'User-Agent': get_random_user_agent(),
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -33,8 +35,8 @@ def get_top_101_stocks():
             sp500_response = requests.get(sp500_url, headers=headers, timeout=15)
             sp500_response.raise_for_status()
             
-            # Parse tables from Wikipedia
-            tables = pd.read_html(sp500_response.text)
+            # Parse tables from Wikipedia - use StringIO to avoid FutureWarning
+            tables = pd.read_html(StringIO(sp500_response.text))
             
             # The first table usually contains the S&P 500 companies
             sp500_df = tables[0]
@@ -47,17 +49,22 @@ def get_top_101_stocks():
                     break
             
             if ticker_column:
-                tickers = sp500_df[ticker_column].dropna().str.strip().tolist()
+                tickers = sp500_df[ticker_column].dropna().astype(str).str.strip().tolist()
                 all_tickers.update(tickers)
                 print(f"✓ Fetched {len(tickers)} S&P 500 tickers")
             else:
                 # If no ticker column found, try to extract from first column
-                print(f"Available columns: {sp500_df.columns.tolist()}")
                 if len(sp500_df.columns) > 0:
-                    # Usually the first column is the ticker
-                    tickers = sp500_df.iloc[:, 0].dropna().str.strip().tolist()
-                    all_tickers.update(tickers)
-                    print(f"✓ Fetched {len(tickers)} S&P 500 tickers from first column")
+                    # Usually the first column is the ticker - convert to string first
+                    first_col_data = sp500_df.iloc[:, 0].dropna().astype(str)
+                    # Filter out non-ticker values (tickers are usually 1-5 uppercase letters)
+                    tickers = [t.strip() for t in first_col_data if isinstance(t, str) and 1 <= len(t) <= 5 and t.replace('.', '').replace('-', '').isalnum()]
+                    
+                    if tickers:
+                        all_tickers.update(tickers)
+                        print(f"✓ Fetched {len(tickers)} S&P 500 tickers from first column")
+                    else:
+                        raise ValueError("Could not extract valid tickers from table")
                 else:
                     raise ValueError("Could not identify ticker column in S&P 500 table")
                     
@@ -66,12 +73,14 @@ def get_top_101_stocks():
         
         # Add NASDAQ 100 components
         try:
+            from io import StringIO
+            
             ndx_url = "https://en.wikipedia.org/wiki/Nasdaq-100"
             headers['User-Agent'] = get_random_user_agent()  # Rotate user agent
             ndx_response = requests.get(ndx_url, headers=headers, timeout=15)
             ndx_response.raise_for_status()
             
-            ndx_tables = pd.read_html(ndx_response.text)
+            ndx_tables = pd.read_html(StringIO(ndx_response.text))
             
             # Find the table with ticker information
             ndx_df = None
@@ -90,12 +99,14 @@ def get_top_101_stocks():
         
         # Add Dow Jones components
         try:
+            from io import StringIO
+            
             dow_url = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
             headers['User-Agent'] = get_random_user_agent()  # Rotate user agent
             dow_response = requests.get(dow_url, headers=headers, timeout=15)
             dow_response.raise_for_status()
             
-            dow_tables = pd.read_html(dow_response.text)
+            dow_tables = pd.read_html(StringIO(dow_response.text))
             
             # Find the table with ticker information
             dow_df = None
@@ -367,7 +378,7 @@ def scrape_yahoo_finance_news(ticker):
 
 
 def get_stock_price_data(ticker, days=90):
-    """Get historical stock price data using yfinance"""
+    """Get historical stock price data using yfinance (default: 90 days = 3 months)"""
     try:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
@@ -378,7 +389,11 @@ def get_stock_price_data(ticker, days=90):
         if hist.empty:
             return None
         
-        return hist
+        # Ensure we have data
+        if len(hist) > 0:
+            return hist
+        
+        return None
     
     except Exception as e:
         return None

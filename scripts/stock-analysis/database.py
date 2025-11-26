@@ -41,7 +41,6 @@ class DatabaseManager:
             if stock_data.get('historical_data') and len(stock_data['historical_data']) > 0:
                 # Delete existing historical data
                 self.supabase.table('stock_prices').delete().eq('ticker', ticker).execute()
-                print(f"    Cleared old historical prices")
                 
                 # Prepare historical data
                 historical_data = [
@@ -52,6 +51,11 @@ class DatabaseManager:
                     }
                     for price in stock_data['historical_data']
                 ]
+                
+                # Log date range
+                if historical_data:
+                    dates = [d['date'] for d in historical_data]
+                    print(f"    Historical prices: {min(dates)} to {max(dates)}")
                 
                 # Insert new historical data in chunks
                 chunk_size = 100
@@ -69,7 +73,6 @@ class DatabaseManager:
             if stock_data.get('prediction') and stock_data['prediction'].get('data') and len(stock_data['prediction']['data']) > 0:
                 # Delete existing predictions
                 self.supabase.table('stock_predictions').delete().eq('ticker', ticker).execute()
-                print(f"    Cleared old predictions")
                 
                 predictions = []
                 pred_data_list = stock_data['prediction']['data']
@@ -88,6 +91,11 @@ class DatabaseManager:
                         'upper_bound': float(upper['price']) if upper and 'price' in upper else None,
                         'lower_bound': float(lower['price']) if lower and 'price' in lower else None
                     })
+                
+                # Log date range
+                if predictions:
+                    dates = [p['date'] for p in predictions]
+                    print(f"    Predictions: {min(dates)} to {max(dates)}")
                 
                 # Insert new predictions in chunks
                 chunk_size = 100
