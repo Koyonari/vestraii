@@ -214,6 +214,7 @@ def analyze_top_stocks(max_stocks=None):
             price_data = get_stock_price_data(ticker, days=90)
             
             if price_data is not None and not price_data.empty:
+                print(f"    ✓ Got {len(price_data)} price data points")
                 # Generate predictions - 30 days (1 month) into the future
                 prediction_result = predict_stock_trend(
                     ticker,
@@ -279,10 +280,12 @@ def analyze_top_stocks(max_stocks=None):
                     })
                 else:
                     # No predictions available
+                    print(f"    ⚠ No predictions generated for {ticker}")
                     sentiment_result['historical_data'] = []
                     sentiment_result['prediction'] = {'data': [], 'upper_bound': [], 'lower_bound': []}
             else:
                 # No price data available
+                print(f"    ⚠ No price data available for {ticker}")
                 sentiment_result['historical_data'] = []
                 sentiment_result['prediction'] = {'data': [], 'upper_bound': [], 'lower_bound': []}
             

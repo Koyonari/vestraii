@@ -384,18 +384,39 @@ def get_stock_price_data(ticker, days=90):
         start_date = end_date - timedelta(days=days)
         
         stock = yf.Ticker(ticker)
+        
+        # Try to fetch historical data
         hist = stock.history(start=start_date, end=end_date)
         
-        if hist.empty:
+        if hist is None:
+            print(f"    ⚠ yfinance returned None for {ticker}")
             return None
         
-        # Ensure we have data
-        if len(hist) > 0:
-            return hist
+        if hist.empty:
+            print(f"    ⚠ No historical data for {ticker}")
+            return None
         
-        return None
+        # Ensure we have data and required columns
+        if len(hist) == 0:
+            print(f"    ⚠ Empty history for {ticker}")
+            return None
+        
+        # Check if 'Close' column exists
+        if 'Close' not in hist.columns:
+            print(f"    ⚠ No Close price data for {ticker}")
+            return None
+        
+        # Filter out NaN values
+        hist = hist.dropna(subset=['Close'])
+        
+        if len(hist) == 0:
+            print(f"    ⚠ All Close prices are NaN for {ticker}")
+            return None
+        
+        return hist
     
     except Exception as e:
+        print(f"    ✗ Error fetching price data for {ticker}: {type(e).__name__}: {str(e)}")
         return None
 
 
