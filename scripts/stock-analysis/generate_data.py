@@ -115,8 +115,11 @@ def generate_master_stocks_json(ranked_stocks, shocking_predictions):
 
 def rank_stocks_by_investment_potential(results_list):
     """Rank stocks by prediction change percentage (highest to lowest)"""
-    # Filter out None results
-    valid_results = [r for r in results_list if r is not None]
+    # Filter out None results and stocks without price_change_pct
+    valid_results = [
+        r for r in results_list 
+        if r is not None and r.get('price_change_pct') is not None
+    ]
     
     if not valid_results:
         print("No valid results to rank")
@@ -266,6 +269,8 @@ def analyze_top_stocks(max_stocks=None):
                     # Add to sentiment result
                     sentiment_result['historical_data'] = historical_data
                     sentiment_result['prediction'] = prediction_data
+                    sentiment_result['price_change_pct'] = prediction_result['price_change_pct']
+                    sentiment_result['prediction_direction'] = prediction_result['prediction_direction']
                     
                     # Collect for shocking predictions
                     all_predictions_data.append({
@@ -279,15 +284,17 @@ def analyze_top_stocks(max_stocks=None):
                         'investment_score': sentiment_result['investment_score']
                     })
                 else:
-                    # No predictions available
+                    # No predictions available - mark for filtering
                     print(f"    ⚠ No predictions generated for {ticker}")
                     sentiment_result['historical_data'] = []
                     sentiment_result['prediction'] = {'data': [], 'upper_bound': [], 'lower_bound': []}
+                    sentiment_result['price_change_pct'] = None  # Mark as missing
             else:
-                # No price data available
+                # No price data available - mark for filtering
                 print(f"    ⚠ No price data available for {ticker}")
                 sentiment_result['historical_data'] = []
                 sentiment_result['prediction'] = {'data': [], 'upper_bound': [], 'lower_bound': []}
+                sentiment_result['price_change_pct'] = None  # Mark as missing
             
             sentiment_results.append(sentiment_result)
         

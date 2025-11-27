@@ -124,6 +124,31 @@ class DatabaseManager:
         
         print(f"\nWriting {len(ranked_stocks)} stocks to database...")
         
+        # Get list of tickers being written
+        new_tickers = set(ranked_stocks['ticker'].tolist())
+        
+        # Clean up old stocks not in this analysis (prevents duplicates/stale data)
+        try:
+            existing_stocks = self.supabase.table('stocks').select('ticker').execute()
+            existing_tickers = set(stock['ticker'] for stock in existing_stocks.data)
+            
+            # Find tickers to remove (were in DB but not in new analysis)
+            tickers_to_remove = existing_tickers - new_tickers
+            
+            if tickers_to_remove:
+                print(f"\nCleaning up {len(tickers_to_remove)} old stocks not in new analysis...")
+                for ticker in tickers_to_remove:
+                    try:
+                        # Delete associated data
+                        self.supabase.table('stock_prices').delete().eq('ticker', ticker).execute()
+                        self.supabase.table('stock_predictions').delete().eq('ticker', ticker).execute()
+                        self.supabase.table('stocks').delete().eq('ticker', ticker).execute()
+                        print(f"  ✓ Removed {ticker}")
+                    except Exception as e:
+                        print(f"  ⚠ Could not remove {ticker}: {e}")
+        except Exception as e:
+            print(f"  ⚠ Could not clean up old stocks: {e}")
+        
         # Ensure unique ranks 1-N
         for rank, (idx, stock) in enumerate(ranked_stocks.iterrows(), start=1):
             try:
