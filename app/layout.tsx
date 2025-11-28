@@ -4,6 +4,7 @@ import "./globals.css";
 import { ConvexClientProvider } from "./convex/ConvexClientProvider";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { Analytics } from "@vercel/analytics/next"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,6 +37,7 @@ export default function RootLayout({
             <main className="p-4">
               <SidebarTrigger />
               {children}
+              <Analytics />
             </main>
           </SidebarProvider>
         </ConvexClientProvider>
