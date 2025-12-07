@@ -8,6 +8,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import StockPredictionListSkeleton from "@/components/skeletons/StockPredictionListSkeleton";
 
 interface Prediction {
   id?: string;
@@ -117,11 +118,7 @@ export default function PredictionsList() {
   };
 
   if (isLoading) {
-    return (
-      <div className="h-[360px] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
-      </div>
-    );
+    return <StockPredictionListSkeleton />;
   }
 
   if (predictions.length === 0) {

@@ -12,6 +12,9 @@ import { TrendingUp, TrendingDown, LineChart } from "lucide-react";
 import StockChart from "@/components/StockChart";
 import StockPredictionList from "@/components/StockPredictionList";
 import SentimentTable from "@/components/SentimentTable";
+import StockChartSkeleton from "@/components/skeletons/StockChartSkeleton";
+import PredictionConfidenceCardSkeleton from "@/components/skeletons/PredictionConfidenceCardSkeleton";
+import StockSentimentAnalysisSkeleton from "@/components/skeletons/StockSentimentAnalysisSkeleton";
 
 interface StockData {
   name: string;
@@ -330,7 +333,7 @@ export default function Dashboard() {
               </div>
             </CardHeader>
             <CardContent className="p-6">
-              <div className="h-72 w-full flex items-center justify-center mb-4">
+              <div className="h-72 w-full mb-4">
                 {!isLoading ? (
                   <StockChart
                     stockSymbol={selectedStock}
@@ -338,15 +341,13 @@ export default function Dashboard() {
                     onChartLoaded={handleChartLoaded}
                   />
                 ) : (
-                  <div className="h-full w-full flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-copper"></div>
-                  </div>
+                  <StockChartSkeleton />
                 )}
               </div>
             </CardContent>
           </Card>
           {/* Sentiment Analysis Card with flexible height */}
-          {stockData && stockData.sentiment && (
+          {!isLoading && stockData && stockData.sentiment ? (
             <Card className="bg-background shadow-md flex-grow flex-col flex">
               <CardHeader>
                 <CardTitle className="text-lg font-semibold">
@@ -401,13 +402,15 @@ export default function Dashboard() {
                 <div className="mt-auto pt-4"></div>
               </CardContent>
             </Card>
+          ) : (
+            <StockSentimentAnalysisSkeleton />
           )}
         </div>
 
         {/* Right Section (1/3 width) */}
         <div className="flex flex-col space-y-4 h-full">
           {/* Price Prediction Card */}
-          {stockData && stockData.prediction && (
+          {!isLoading && stockData && stockData.prediction ? (
             <Card className="bg-background shadow-md flex-grow flex">
               <CardHeader>
                 <CardTitle className="text-lg font-semibold">
@@ -463,6 +466,8 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
+          ) : (
+            <PredictionConfidenceCardSkeleton />
           )}
 
           {/* Stock Predictions Card */}

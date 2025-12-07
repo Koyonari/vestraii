@@ -9,6 +9,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import SentimentTableSkeleton from "@/components/skeletons/SentimentTableSkeleton";
 
 interface SentimentItem {
   rank: number;
@@ -146,9 +147,7 @@ export default function SentimentTable({
   return (
     <div className="w-full">
       {isLoading ? (
-        <div className="flex justify-center items-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
-        </div>
+        <SentimentTableSkeleton />
       ) : (
         <div className="rounded-md border">
           <div className="relative w-full overflow-auto">

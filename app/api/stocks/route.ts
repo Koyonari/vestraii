@@ -138,7 +138,7 @@ export async function GET(request: Request) {
             .limit(1);
 
           if (!predictions?.length || !historicalData?.length) {
-            return { ...stock, prediction_change: 0 };
+            return { ...stock, prediction_change: 0, current_price: 0 };
           }
 
           const currentPrice = historicalData[0].price;
@@ -146,13 +146,17 @@ export async function GET(request: Request) {
           const percentChange =
             ((predictedPrice - currentPrice) / currentPrice) * 100;
 
-          return { ...stock, prediction_change: percentChange };
+          return {
+            ...stock,
+            prediction_change: percentChange,
+            current_price: currentPrice,
+          };
         } catch (error) {
           console.error(
             `Error calculating prediction for ${stock.ticker}:`,
             error
           );
-          return { ...stock, prediction_change: 0 };
+          return { ...stock, prediction_change: 0, current_price: 0 };
         }
       })
     );
