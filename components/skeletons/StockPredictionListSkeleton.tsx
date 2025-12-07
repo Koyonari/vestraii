@@ -1,4 +1,4 @@
-import { Skeleton } from '@/components/ui/skeleton'
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function StockPredictionListSkeleton() {
   return (
@@ -39,5 +39,5 @@ export default function StockPredictionListSkeleton() {
         <Skeleton className="h-8 w-8" />
       </div>
     </div>
-  )
+  );
 }

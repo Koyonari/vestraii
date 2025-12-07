@@ -1,8 +1,15 @@
-import { Skeleton } from '@/components/ui/skeleton'
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function SentimentTableSkeleton() {
-  const headers = ["Rank", "Symbol", "Company", "Sentiment Score", "Prediction Change", "Articles"]
-  const initialDisplayCount = 10
+  const headers = [
+    "Rank",
+    "Symbol",
+    "Company",
+    "Sentiment Score",
+    "Prediction Change",
+    "Articles",
+  ];
+  const initialDisplayCount = 10;
 
   return (
     <div className="w-full">
@@ -70,5 +77,5 @@ export default function SentimentTableSkeleton() {
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -1,7 +1,5 @@
-import { Skeleton } from '@/components/ui/skeleton'
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function StockChartSkeleton() {
-  return (
-    <Skeleton className="w-full h-72 rounded-md" />
-  )
+  return <Skeleton className="w-full h-72 rounded-md" />;
 }

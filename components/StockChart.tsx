@@ -11,7 +11,6 @@ import {
   AreaSeries,
   type ISeriesApi,
 } from "lightweight-charts";
-import StockChartSkeleton from "@/components/skeletons/StockChartSkeleton";
 
 interface ChartDataPoint {
   date: string;
@@ -42,7 +41,6 @@ export default function StockChart({
   onChartLoaded,
 }: StockChartProps) {
   const [errorMessage, setErrorMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -261,14 +259,12 @@ export default function StockChart({
               last_updated: data.last_updated,
             });
           }
-          setIsLoading(false);
         } else {
           throw new Error(`Failed to fetch data for ${stockSymbol}`);
         }
       } catch (error) {
         console.error("Error fetching chart data:", error);
         setErrorMessage(`Failed to fetch data for ${stockSymbol}`);
-        setIsLoading(false);
       }
     };
 
@@ -297,16 +293,15 @@ export default function StockChart({
 
   return (
     <div className="relative w-full h-full">
-      {isLoading && <StockChartSkeleton />}
-      {!isLoading && errorMessage && (
+      {errorMessage && (
         <div className="absolute top-0 left-0 bg-yellow-100 text-yellow-800 p-2 text-xs rounded z-10">
           {errorMessage}
         </div>
       )}
       <div
         ref={chartContainerRef}
-        className={`w-full h-full ${isLoading ? 'hidden' : ''}`}
-        style={{ minHeight: "300px", minWidth: "300px" }}
+        className="w-full h-full"
+        style={{ minHeight: "300px", minWidth: "600px" }}
       />
     </div>
   );
