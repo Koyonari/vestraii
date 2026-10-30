@@ -2,10 +2,10 @@ import json
 import os
 from datetime import datetime
 import pandas as pd
-from webscrape import get_top_101_stocks, get_stock_price_data
+from webscrape import get_top_101_stocks, get_stock_price_data, get_earnings_reaction_dates
 from sentiment_analysis import SentimentAnalyzer
 from predict import predict_stock_trend, generate_shocking_predictions
-from config import MAX_STOCKS
+from config import MAX_STOCKS, HISTORICAL_DAYS, MODEL_HISTORY_DAYS
 
 
 def export_stock_data_to_json(ticker, name, price_data, prediction_result, sentiment_data):
@@ -24,10 +24,7 @@ def export_stock_data_to_json(ticker, name, price_data, prediction_result, senti
         ]
 
         # Format prediction data
-        prediction_dates = pd.date_range(
-            start=price_data.index[-1] + pd.Timedelta(days=1),
-            periods=len(prediction_result['predictions'])
-        )
+        prediction_dates = prediction_result['dates']
         
         prediction_data = {
             'data': [
@@ -213,16 +210,22 @@ def analyze_top_stocks(max_stocks=None):
             # Sentiment analysis
             sentiment_result = analyzer.analyze_ticker_sentiment(ticker_data)
             
-            # Get price data - explicitly request 90 days (3 months)
-            price_data = get_stock_price_data(ticker, days=90)
+            # Fit the model on a longer window, but only chart the last HISTORICAL_DAYS
+            model_price_data = get_stock_price_data(ticker, days=MODEL_HISTORY_DAYS)
+            price_data = None
+            if model_price_data is not None and not model_price_data.empty:
+                chart_start = model_price_data.index[-1] - pd.Timedelta(days=HISTORICAL_DAYS)
+                price_data = model_price_data[model_price_data.index >= chart_start]
             
             if price_data is not None and not price_data.empty:
-                print(f"    ✓ Got {len(price_data)} price data points")
-                # Generate predictions - 30 days (1 month) into the future
+                print(f"    ✓ Got {len(model_price_data)} price data points")
+                # Generate predictions - PREDICTION_DAYS into the future
                 prediction_result = predict_stock_trend(
                     ticker,
-                    price_data,
-                    sentiment_result['avg_sentiment']
+                    model_price_data,
+                    sentiment_result['avg_sentiment'],
+                    sentiment_result.get('news_count', 0),
+                    get_earnings_reaction_dates(ticker)
                 )
                 
                 if prediction_result:
@@ -237,10 +240,7 @@ def analyze_top_stocks(max_stocks=None):
                     ]
                     
                     # Format prediction data with dates
-                    prediction_dates = pd.date_range(
-                        start=price_data.index[-1] + pd.Timedelta(days=1),
-                        periods=len(prediction_result['predictions'])
-                    )
+                    prediction_dates = prediction_result['dates']
                     
                     prediction_data = {
                         'data': [

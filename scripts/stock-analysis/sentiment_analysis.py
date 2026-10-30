@@ -60,7 +60,7 @@ class SentimentAnalyzer:
                 sources_data.append(finviz_df)
             
             # Try Yahoo Finance
-            yahoo_df = scrape_yahoo_finance_news(ticker)
+            yahoo_df = scrape_yahoo_finance_news(ticker, name)
             if not yahoo_df.empty:
                 sources_data.append(yahoo_df)
             
@@ -71,6 +71,9 @@ class SentimentAnalyzer:
         
         # Combine available news
         news_df = pd.concat(sources_data, ignore_index=True) if sources_data else pd.DataFrame()
+        if not news_df.empty:
+            # Finviz syndicates Yahoo stories, so the same headline can appear twice
+            news_df = news_df.drop_duplicates(subset='headline', ignore_index=True)
         
         if news_df.empty:
             print(f"No news found for {ticker} after {attempts} attempts")

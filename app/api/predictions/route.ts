@@ -58,7 +58,7 @@ export async function GET(request: Request) {
         // Get the most recent historical price (current price)
         const { data: historicalData, error: histError } = await supabase
           .from("stock_prices")
-          .select("price")
+          .select("date, price")
           .eq("ticker", stock.ticker)
           .order("date", { ascending: false })
           .limit(1);
@@ -72,13 +72,13 @@ export async function GET(request: Request) {
         const priceChange = predictedPrice - currentPrice;
         const percentChange = (priceChange / currentPrice) * 100;
 
-        // Determine timeframe based on magnitude
-        let timeframe = "7 days";
-        if (Math.abs(percentChange) > 20) {
-          timeframe = "30 days";
-        } else if (Math.abs(percentChange) > 10) {
-          timeframe = "14 days";
-        }
+        // Horizon from the last known price to the final predicted date
+        const horizonDays = Math.round(
+          (new Date(predictions[0].date).getTime() -
+            new Date(historicalData[0].date).getTime()) /
+            86_400_000
+        );
+        const timeframe = `${horizonDays} days`;
 
         const direction = percentChange >= 0 ? "increase" : "decrease";
         const sentimentScore =

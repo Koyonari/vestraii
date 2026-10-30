@@ -18,8 +18,19 @@ env:
 jobs:
   analyze-stocks:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write # needed to re-enable this workflow below
     steps:
       - uses: actions/checkout@v4
+
+      # GitHub disables scheduled workflows after 60 days without repo activity,
+      # which stops the pipeline and lets the Supabase project pause from inactivity.
+      # Re-enabling via the API resets that 60-day timer.
+      - name: Keep scheduled workflow alive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/github-actions.yml/enable"
       
       - name: Set up Python
         uses: actions/setup-python@v4

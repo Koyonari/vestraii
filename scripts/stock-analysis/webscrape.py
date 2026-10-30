@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 import yfinance as yf
 import requests
@@ -261,6 +262,7 @@ def scrape_finviz_news(ticker):
                 continue
             
             news_data = []
+            # Finviz only shows the date on the first headline of each day
             current_date = datetime.now().strftime('%m/%d/%y')
             
             for row in news_table.find_all('tr'):
@@ -277,7 +279,7 @@ def scrape_finviz_news(ticker):
                         if ':' in date_cell[0]:
                             time_str = date_cell[0]
                         elif len(date_cell) >= 2:
-                            date_str = date_cell[0]
+                            date_str = current_date = date_cell[0]
                             time_str = date_cell[1] if ':' in date_cell[1] else ''
                     
                     headline = row.a.text.strip() if row.a else None
@@ -299,82 +301,64 @@ def scrape_finviz_news(ticker):
     return pd.DataFrame()
 
 
-def scrape_yahoo_finance_news(ticker):
-    """Scrape news from Yahoo Finance for a specific ticker"""
-    news_data = []
-    
+def _mentions_company(headline, ticker, name):
+    """Whether a headline names the ticker or the company (first word of its name)"""
+    if re.search(rf'\b{re.escape(ticker)}\b', headline):
+        return True
+    words = [word for word in re.findall(r"[\w&'-]+", name or '') if word.lower() != 'the']
+    return bool(words) and re.search(rf'\b{re.escape(words[0])}', headline, re.IGNORECASE) is not None
+
+
+def scrape_yahoo_finance_news(ticker, name=None):
+    """Fetch recent Yahoo Finance headlines for a ticker via yfinance search"""
     try:
         time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
-        
-        # Use yfinance news (more reliable)
-        try:
-            import yfinance as yf
-            stock = yf.Ticker(ticker)
-            news = stock.news
-            
-            if news:
-                for item in news[:20]:
-                    headline = item.get('title', '')
-                    if headline and len(headline) > 5:
-                        news_data.append([
-                            datetime.now().strftime('%m/%d/%y'),
-                            'N/A',
-                            headline,
-                            item.get('publisher', 'Yahoo Finance')
-                        ])
-                
-                if news_data:
-                    return pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source'])
-        except Exception:
-            pass
-        
-        # Fallback: try scraping main quote page
-        base_url = f'https://finance.yahoo.com/quote/{ticker}'
-        headers = {
-            'User-Agent': get_random_user_agent(),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-        }
-        
-        try:
-            response = requests.get(base_url, headers=headers, timeout=15)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            news_items = (
-                soup.select('h3') +
-                soup.select('h4') +
-                soup.find_all('a', href=lambda x: x and '/news/' in str(x))
-            )
-            
-            for item in news_items[:20]:
-                headline = item.text.strip()
-                if headline and len(headline) > 10 and not any(skip in headline.lower() for skip in ['sponsored', 'advertisement', 'sign in', 'subscribe']):
-                    news_data.append([
-                        datetime.now().strftime('%m/%d/%y'),
-                        'N/A',
-                        headline,
-                        'Yahoo Finance'
-                    ])
-            
-            if news_data:
-                seen = set()
-                unique_news = []
-                for item in news_data:
-                    if item[2] not in seen:
-                        seen.add(item[2])
-                        unique_news.append(item)
-                news_data = unique_news
-                
-        except Exception:
-            pass
-    
-    except Exception:
-        pass
-    
+        news = yf.Search(ticker, news_count=20).news or []
+    except Exception as e:
+        print(f"    ⚠ Yahoo news unavailable for {ticker}: {e}")
+        return pd.DataFrame()
+
+    news_data = []
+    for item in news:
+        headline = item.get('title', '')
+        # Search results are loosely tagged, so also require the headline to name the company
+        if len(headline) <= 5 or ticker not in item.get('relatedTickers', []):
+            continue
+        if not _mentions_company(headline, ticker, name):
+            continue
+        published = datetime.fromtimestamp(item['providerPublishTime']) if item.get('providerPublishTime') else datetime.now()
+        news_data.append([
+            published.strftime('%m/%d/%y'),
+            published.strftime('%I:%M%p'),
+            headline,
+            item.get('publisher', 'Yahoo Finance')
+        ])
+
     return pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source']) if news_data else pd.DataFrame()
+
+
+def get_earnings_reaction_dates(ticker):
+    """
+    Trading days on which earnings reports move the price, past and upcoming.
+    Reports released after midday (e.g. after the close) move the next session.
+    """
+    try:
+        earnings = yf.Ticker(ticker).get_earnings_dates(limit=24)
+    except Exception as e:
+        print(f"    ⚠ Earnings dates unavailable for {ticker}: {e}")
+        return []
+
+    if earnings is None or earnings.empty:
+        return []
+
+    reaction_dates = set()
+    for ts in earnings.index:
+        local = ts.tz_convert('America/New_York') if ts.tzinfo else ts
+        day = pd.Timestamp(local.date())
+        if local.hour >= 12:
+            day += pd.offsets.BDay(1)
+        reaction_dates.add(day)
+    return sorted(reaction_dates)
 
 
 def get_stock_price_data(ticker, days=90):

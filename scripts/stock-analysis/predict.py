@@ -1,83 +1,102 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from config import PREDICTION_DAYS
-from webscrape import get_stock_price_data
 
 
-def predict_stock_trend(ticker, price_data, sentiment_score):
-    """Generate price predictions based on historical prices and sentiment"""
-    if price_data is None or len(price_data) < 5:
+# Model parameters (validated walk-forward on ~100 large caps; see backtest.py).
+# Historical drift, momentum, technical indicators and post-earnings drift were all
+# tested as return signals and none beat a constant drift out of sample, so the
+# expected return is the long-run market drift plus a small news-sentiment tilt.
+PRIOR_DAILY_DRIFT = 0.0003     # ~7.5%/yr long-run equity drift
+SENTIMENT_DAILY_TILT = 0.0004  # max daily drift added by fully bullish news
+EWMA_LAMBDA = 0.94             # RiskMetrics decay for recent volatility
+LONG_VOL_DAYS = 250            # ~1 trading year for the long-run volatility
+EARNINGS_LOOKBACK = 8          # past reports used to size the earnings-day move
+CONFIDENCE_Z = 1.96            # 95% band
+
+
+def _trading_days(index):
+    """Normalize a DatetimeIndex to tz-naive dates for matching against earnings dates"""
+    index = pd.DatetimeIndex(index)
+    if index.tz is not None:
+        index = index.tz_localize(None)
+    return index.normalize()
+
+
+def expected_daily_drift(sentiment_score=0.0, news_count=0):
+    """Long-run drift tilted by news sentiment, scaled by how much news backs it up"""
+    news_confidence = min(1.0, news_count / 20)
+    return PRIOR_DAILY_DRIFT + SENTIMENT_DAILY_TILT * float(np.clip(sentiment_score, -1, 1)) * news_confidence
+
+
+def estimate_volatility(close, earnings_dates=()):
+    """
+    Split volatility into ordinary trading days and earnings days.
+
+    Returns the daily volatility on ordinary days (blend of recent EWMA and
+    last trading year) and the mean squared log move on recent earnings days, or
+    None when there's no earnings history to size it.
+    """
+    log_returns = np.log(close / close.shift(1))
+    is_earnings = _trading_days(close.index).isin(earnings_dates)
+
+    ordinary = log_returns[~is_earnings].dropna()
+    ewma_vol = np.sqrt((ordinary ** 2).ewm(alpha=1 - EWMA_LAMBDA).mean().iloc[-1])
+    sigma = 0.5 * ewma_vol + 0.5 * ordinary.tail(LONG_VOL_DAYS).std()
+
+    earnings_moves = log_returns[is_earnings].dropna().tail(EARNINGS_LOOKBACK)
+    jump_variance = float((earnings_moves ** 2).mean()) if len(earnings_moves) >= 2 else None
+
+    return sigma, jump_variance
+
+
+def predict_stock_trend(ticker, price_data, sentiment_score, news_count=0, earnings_dates=()):
+    """Generate price predictions based on historical prices, sentiment and earnings dates"""
+    if price_data is None or len(price_data) < 20:
         return None
-    
+
     try:
-        # Get the last closing price
-        last_close = price_data['Close'].iloc[-1]
-        
-        # Calculate moving averages
-        short_window = min(10, len(price_data))
-        long_window = min(30, len(price_data))
-        
-        short_ma = price_data['Close'].rolling(window=short_window).mean().iloc[-1]
-        long_ma = price_data['Close'].rolling(window=long_window).mean().iloc[-1]
-        
-        # Calculate average daily price change
-        avg_daily_change = price_data['Close'].pct_change().mean()
-        volatility = price_data['Close'].pct_change().std()
-        
-        # Convert sentiment to a price adjustment factor
-        sentiment_factor = 1 + (sentiment_score * 0.05)
-        
-        # Calculate momentum
-        momentum = (short_ma / long_ma - 1) if long_ma > 0 else 0
-        
-        # Generate predictions
-        prediction_days = PREDICTION_DAYS
-        dates = pd.date_range(
-            start=price_data.index[-1] + pd.Timedelta(days=1), 
-            periods=prediction_days
+        close = price_data['Close']
+        last_close = float(close.iloc[-1])
+        mu = expected_daily_drift(sentiment_score, news_count)
+        sigma, jump_variance = estimate_volatility(close, earnings_dates)
+
+        # Forecast over trading days only, covering PREDICTION_DAYS calendar days
+        dates = pd.bdate_range(
+            start=price_data.index[-1] + pd.Timedelta(days=1),
+            end=price_data.index[-1] + pd.Timedelta(days=PREDICTION_DAYS),
         )
-        
-        predicted_prices = [last_close]
-        upper_bounds = [last_close]
-        lower_bounds = [last_close]
-        
-        for i in range(1, prediction_days):
-            # Blend of momentum, average change, and sentiment
-            daily_change = (avg_daily_change + momentum/30) * sentiment_factor
-            
-            # Calculate next price
-            next_price = predicted_prices[-1] * (1 + daily_change)
-            
-            # Add realistic noise based on historical volatility
-            noise = np.random.normal(0, volatility * 0.5)
-            next_price = next_price * (1 + noise)
-            
-            # Ensure price stays positive
-            next_price = max(next_price, predicted_prices[-1] * 0.95)
-            
-            # Calculate confidence bounds
-            confidence_interval = volatility * 1.96  # 95% confidence
-            upper_bound = next_price * (1 + confidence_interval)
-            lower_bound = next_price * (1 - confidence_interval)
-            
-            predicted_prices.append(next_price)
-            upper_bounds.append(upper_bound)
-            lower_bounds.append(lower_bound)
-        
-        # Calculate prediction metrics
-        price_change_pct = ((predicted_prices[-1] - last_close) / last_close) * 100
-        
+        t = np.arange(1, len(dates) + 1)
+
+        # Variance grows by sigma^2 per ordinary day, plus the typical earnings move
+        # on an upcoming earnings day, so bands widen when a report is due
+        if jump_variance is None:
+            earnings_days = np.zeros(len(t))
+            jump_variance = 0.0
+        else:
+            earnings_days = np.cumsum(_trading_days(dates).isin(earnings_dates))
+        variance = sigma ** 2 * (t - earnings_days) + jump_variance * earnings_days
+
+        # Median of a lognormal random walk
+        predicted_prices = last_close * np.exp(mu * t)
+        spread = CONFIDENCE_Z * np.sqrt(variance)
+        upper_bounds = predicted_prices * np.exp(spread)
+        lower_bounds = predicted_prices * np.exp(-spread)
+
+        price_change_pct = (predicted_prices[-1] / last_close - 1) * 100
+
         return {
-            'predictions': predicted_prices,
-            'upper_bound': upper_bounds,
-            'lower_bound': lower_bounds,
+            'dates': dates,
+            'predictions': predicted_prices.tolist(),
+            'upper_bound': upper_bounds.tolist(),
+            'lower_bound': lower_bounds.tolist(),
             'current_price': round(last_close, 2),
-            'predicted_price_30d': round(predicted_prices[-1], 2),
-            'price_change_pct': round(price_change_pct, 2),
+            'predicted_price_30d': round(float(predicted_prices[-1]), 2),
+            'price_change_pct': round(float(price_change_pct), 2),
             'prediction_direction': 'increase' if price_change_pct > 0 else 'decrease'
         }
-    
+
     except Exception as e:
         print(f"Error generating prediction for {ticker}: {e}")
         return None
@@ -92,22 +111,12 @@ def generate_shocking_predictions(all_predictions, top_n=5):
     
     for pred in all_predictions:
         if pred and 'price_change_pct' in pred:
-            abs_change = abs(pred['price_change_pct'])
-            
-            # Determine timeframe based on magnitude
-            if abs_change > 20:
-                timeframe = '30 days'
-            elif abs_change > 10:
-                timeframe = '14 days'
-            else:
-                timeframe = '7 days'
-            
             shocking_predictions.append({
                 'company': pred['name'],
                 'symbol': pred['ticker'],
                 'prediction': abs(pred['price_change_pct']),
                 'direction': pred['prediction_direction'],
-                'timeframe': timeframe,
+                'timeframe': f'{PREDICTION_DAYS} days',
                 'timestamp': datetime.now().isoformat(),
                 'current_price': pred['current_price'],
                 'predicted_price': pred['predicted_price_30d'],

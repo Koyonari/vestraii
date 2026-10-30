@@ -20,6 +20,7 @@ MAX_STOCKS = int(os.getenv('MAX_STOCKS', '100'))
 DAYS_BACK = int(os.getenv('DAYS_BACK', '90'))  # 3 months of historical data
 PREDICTION_DAYS = int(os.getenv('PREDICTION_DAYS', '30'))  # 1 month of predictions
 HISTORICAL_DAYS = 90  # Explicitly set to 90 days (3 months)
+MODEL_HISTORY_DAYS = int(os.getenv('MODEL_HISTORY_DAYS', '730'))  # 2 years, so ~8 past earnings reports
 
 # Rate Limiting
 REQUEST_DELAY_MIN = float(os.getenv('REQUEST_DELAY_MIN', '1.5'))
@@ -35,22 +36,29 @@ USER_AGENTS = [
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
 ]
 
-# Finance-specific lexicon for sentiment analysis
+# Finance-specific lexicon for sentiment analysis.
+# Each positive/negative pair shares one magnitude so the lexicon itself doesn't skew
+# bullish, and common inflections are listed since VADER matches whole words only.
+_FINANCE_TERM_PAIRS = [
+    (3.5, ['bullish'], ['bearish']),
+    (3.0, ['upgrade', 'upgrades', 'upgraded'], ['downgrade', 'downgrades', 'downgraded']),
+    (3.0, ['surge', 'surges', 'surged', 'soar', 'soars', 'soared'],
+          ['plunge', 'plunges', 'plunged', 'tumble', 'tumbles', 'tumbled']),
+    (3.0, ['rally', 'rallies', 'rallied'], ['crash', 'crashes', 'crashed']),
+    (3.0, ['breakthrough'], ['breakdown']),
+    (2.5, ['beat', 'beats', 'exceeded', 'exceeds'], ['miss', 'misses', 'missed']),
+    (2.5, ['outperform', 'outperforms'], ['underperform', 'underperforms']),
+    (2.5, ['buy'], ['sell']),
+    (2.0, ['growth', 'profit', 'profits'], ['decline', 'declines', 'loss', 'losses']),
+    (2.0, ['strong', 'positive'], ['weak', 'negative']),
+    (1.5, ['rise', 'rises', 'rose', 'gain', 'gains', 'jump', 'jumps'],
+          ['fall', 'falls', 'fell', 'drop', 'drops', 'slump', 'slumps']),
+]
 FINANCE_LEXICON = {
-    'bullish': 4.0, 'bearish': -3.0,
-    'outperform': 3.0, 'underperform': -2.0,
-    'buy': 3.0, 'sell': -2.0,
-    'upgrade': 3.5, 'downgrade': -2.5,
-    'beat': 3.0, 'miss': -2.0,
-    'exceeded': 3.0, 'fell short': -2.0,
-    'growth': 2.5, 'decline': -1.5,
-    'profit': 2.5, 'loss': -1.5,
-    'positive': 2.0, 'negative': -1.0,
-    'strong': 2.0, 'weak': -1.0,
-    'surge': 3.0, 'plunge': -2.0,
-    'rise': 2.0, 'fall': -1.0,
-    'rally': 3.0, 'crash': -2.5,
-    'breakthrough': 3.0, 'breakdown': -2.0,
+    word: magnitude * sign
+    for magnitude, positive, negative in _FINANCE_TERM_PAIRS
+    for sign, words in ((1, positive), (-1, negative))
+    for word in words
 }
 
 # Fallback stock tickers
